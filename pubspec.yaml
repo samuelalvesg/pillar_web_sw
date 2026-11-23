@@ -9,6 +9,13 @@ environment:
 executables:
   pillar_web_sw: generate
 
+dependencies:
+  args: ^2.7.0
+  crypto: ^3.0.6
+  glob: ^2.1.3
+  path: ^1.9.0
+  yaml: ^3.1.3
+
 dev_dependencies:
   lints: ^6.0.0
   test: ^1.25.0
