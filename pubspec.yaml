@@ -1,0 +1,14 @@
+name: pillar_web_sw
+description: "Generates a release-scoped service worker and its registration script for the Flutter web builds of the pillar ecosystem apps."
+version: 0.0.1
+homepage: https://github.com/samuelalvesg/pillar_web_sw
+
+environment:
+  sdk: ^3.11.0
+
+executables:
+  pillar_web_sw: generate
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.0
