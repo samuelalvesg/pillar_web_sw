@@ -35,7 +35,7 @@ const scenarios = {
     const core = table().core.filter((e) => e.url !== 'config.js');
     assert.strictEqual((await (await w.caches.open(CORE())).keys()).length, core.length);
     assert.ok(w.server.log.every((l) => l.cache === 'reload'));
-    assert.ok(!w.server.log.some((l) => l.url.endsWith('/config.js')));
+    assert.ok(!(await hasKey(w, CORE(), '/config.js')), 'not in the release');
     assert.strictEqual(w.calls.skipWaiting, 0);
   },
   async 'install rejects on a non-200 and leaves the old release alone'() {
@@ -148,7 +148,11 @@ const scenarios = {
     assert.strictEqual((await w.doFetch('/config.js')).text, 'v2');
     w.server.offline = true;
     assert.strictEqual((await w.doFetch('/config.js')).text, 'v2');
-    const cold = await installed();
+    const cold = fresh();
+    cold.server.overrides.set('/config.js', async () => respond('nf', { status: 404 }));
+    await cold.install();
+    await cold.activate();
+    cold.server.overrides.clear();
     cold.server.offline = true;
     assert.ok((await cold.doFetch('/config.js')).error);
   },
@@ -195,21 +199,81 @@ const scenarios = {
     }
     const od = await caches.open('app-ondemand');
     await od.put(ORIGIN + '/assets/bible/gone.1.json', respond('x'));
-    const w = fresh({ caches });
+    const w = fresh({ caches, active: {} });
     await w.install();
     const keep = ORIGIN + '/' + table().onDemand[0].url;
     await od.put(keep, respond('k'));
     await w.activate();
     assert.deepStrictEqual(
       (await caches.keys()).sort(),
-      [CORE(), 'app-ondemand', 'other-core-x'].sort(),
+      [CORE(), 'app-meta', 'app-ondemand', 'app-runtime', 'other-core-x'].sort(),
     );
     assert.deepStrictEqual((await od.keys()).map((k) => k.url), [keep]);
     assert.strictEqual(w.calls.claim, 0, 'previous release exists');
   },
-  async 'activate claims clients only when there was no previous release'() {
-    const first = await installed();
+  async 'claim happens only on the first install, and the mark is cleared'() {
+    const caches = new MockCaches();
+    const first = await installed({ caches });
     assert.strictEqual(first.calls.claim, 1);
+    const meta = await caches.open('app-meta');
+    assert.strictEqual((await meta.keys()).length, 0, 'mark cleared');
+    const update = boot(nextRelease('newrel03'), { buildDir, caches, active: {} });
+    await update.install();
+    await update.activate();
+    assert.strictEqual(update.calls.claim, 0);
+    assert.strictEqual((await meta.keys()).length, 0);
+  },
+  async 'reinstall after caches were wiped but with an active worker does not claim'() {
+    const w = await installed({ active: {} });
+    assert.strictEqual(w.calls.claim, 0);
+  },
+  async 'the first-install mark survives until a later activate'() {
+    const caches = new MockCaches();
+    const a = fresh({ caches });
+    await a.install();
+    const b = fresh({ caches });
+    await b.activate();
+    assert.strictEqual(b.calls.claim, 1);
+  },
+  async 'install pre-caches config.js in the runtime cache with reload'() {
+    const w = fresh();
+    w.server.overrides.set('/config.js', async () => respond('tenant-cfg'));
+    await w.install();
+    assert.ok(w.server.log.some((l) => l.url.endsWith('/config.js') && l.cache === 'reload'));
+    await w.activate();
+    w.server.offline = true;
+    assert.strictEqual((await w.doFetch('/config.js')).text, 'tenant-cfg');
+    const [reply] = await w.message({ type: 'app-sw-status' });
+    assert.strictEqual(reply.configPrefetchError, null);
+  },
+  async 'config.js is served offline on reopen after a first online visit'() {
+    const caches = new MockCaches();
+    const first = fresh({ caches });
+    await first.install();
+    await first.activate();
+    const reopened = fresh({ caches });
+    reopened.server.offline = true;
+    const onDisk = fs.readFileSync(path.join(buildDir, 'config.js'), 'utf8');
+    assert.strictEqual((await reopened.doFetch('/config.js')).text, onDisk);
+  },
+  async 'install survives config.js failing, 404 or not ok, and reports it'() {
+    const failures = [
+      async () => { throw new TypeError('boom'); },
+      async () => respond('nf', { status: 404 }),
+      async () => respond('x', { status: 500 }),
+      async () => respond('x', { type: 'opaque' }),
+    ];
+    for (const failure of failures) {
+      const w = fresh();
+      w.server.overrides.set('/config.js', failure);
+      await w.install();
+      await w.activate();
+      assert.ok(!(await hasKey(w, 'app-runtime', '/config.js')));
+      assert.ok(await hasKey(w, CORE(), '/index.html'));
+      const [reply] = await w.message({ type: 'app-sw-status' });
+      assert.ok(reply.configPrefetchError);
+      assert.strictEqual(reply.lastInstallError, null);
+    }
   },
   async 'kill switch wipes app caches and unregisters, nothing else'() {
     const caches = new MockCaches();

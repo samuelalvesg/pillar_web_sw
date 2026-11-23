@@ -86,7 +86,7 @@ class MockServer {
 }
 
 // Boots a worker script in a fresh vm context.
-function boot(code, { buildDir, caches = new MockCaches() }) {
+function boot(code, { buildDir, caches = new MockCaches(), active = null }) {
   const listeners = {};
   const server = new MockServer(buildDir);
   const calls = { skipWaiting: 0, claim: 0, unregister: 0, posted: [] };
@@ -94,6 +94,7 @@ function boot(code, { buildDir, caches = new MockCaches() }) {
     addEventListener: (type, fn) => { listeners[type] = fn; },
     registration: {
       scope: ORIGIN + '/',
+      active,
       unregister: async () => { calls.unregister++; return true; },
     },
     clients: { claim: async () => { calls.claim++; } },

@@ -45,6 +45,8 @@ const CORE = new Map(TABLE.core.map((e) => [pathOf(e.url), e]));
 const ON_DEMAND = new Map(TABLE.onDemand.map((e) => [pathOf(e.url), e]));
 const CONFIG_PATH = pathOf(CONFIG_REL);
 const ERROR_KEY = hrefOf('__app-sw__/last-install-error');
+const CONFIG_ERROR_KEY = hrefOf('__app-sw__/config-prefetch-error');
+const FIRST_INSTALL_KEY = hrefOf('__app-sw__/first-install');
 
 let state = 'parsed';
 
@@ -56,8 +58,12 @@ self.addEventListener('install', (event) => {
 });
 
 async function install() {
+  // The first page load asks for config.js before this worker controls it,
+  // so only the install can get it into the cache for the offline reopen.
+  await markFirstInstall(!self.registration.active);
   try {
     await precacheCore();
+    await prefetchConfig();
     state = 'installed';
   } catch (error) {
     state = 'failed';
@@ -113,21 +119,53 @@ async function shortHash(buffer) {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// The error lives in a cache because a failed worker is discarded and the
-// active one must still be able to report it. Never served by fetch.
-async function recordInstallError(message) {
+// Best effort: a missing or failing config.js never rejects the install.
+async function prefetchConfig() {
+  await writeMeta(CONFIG_ERROR_KEY, null);
+  try {
+    const href = hrefOf(CONFIG_REL);
+    const response = await fetch(new Request(href, { cache: 'reload' }));
+    if (!response.ok || response.type !== 'basic') {
+      throw new Error('config.js: status ' + response.status);
+    }
+    const cache = await caches.open(RUNTIME_CACHE);
+    await cache.put(href, response);
+  } catch (error) {
+    await writeMeta(CONFIG_ERROR_KEY, String((error && error.message) || error));
+  }
+}
+
+// The marker tells activate whether a worker of ours was already in charge.
+// Judged here because the activate may run much later, in a new instance.
+async function markFirstInstall(isFirst) {
+  await writeMeta(FIRST_INSTALL_KEY, isFirst ? 'yes' : null);
+}
+
+async function takeFirstInstallMark() {
+  const mark = await readMeta(FIRST_INSTALL_KEY);
+  await writeMeta(FIRST_INSTALL_KEY, null);
+  return mark === 'yes';
+}
+
+const recordInstallError = (message) => writeMeta(ERROR_KEY, message);
+const readInstallError = () => readMeta(ERROR_KEY);
+
+// Small notes live in a cache because a failed worker is discarded and the
+// active one must still report them. Never served by fetch.
+async function writeMeta(key, message) {
   try {
     const cache = await caches.open(META_CACHE);
-    await cache.put(ERROR_KEY, new Response(JSON.stringify({ message })));
+    if (message === null) await cache.delete(key);
+    else await cache.put(key, new Response(JSON.stringify({ message })));
   } catch (_) {
     // Reporting is best effort.
   }
 }
 
-async function readInstallError() {
+async function readMeta(key) {
   try {
     const cache = await caches.open(META_CACHE);
-    const hit = await cache.match(ERROR_KEY);
+    const hit = await cache.match(key);
     return hit ? (await hit.json()).message : null;
   } catch (_) {
     return null;
@@ -152,10 +190,10 @@ async function activate() {
   );
   await Promise.all(doomed.map((n) => caches.delete(n)));
   await pruneOnDemand();
-  await caches.delete(META_CACHE);
-  // A release cache from before means a page is running the old release:
-  // it must not be swapped under it. Claim only on the very first install.
-  if (otherReleases.length === 0) await self.clients.claim();
+  await writeMeta(ERROR_KEY, null);
+  // An update must not be swapped under pages running the old release; only
+  // a first install (no active worker at install time) takes them over.
+  if (await takeFirstInstallMark()) await self.clients.claim();
 }
 
 function onDemandKey(entry) {
@@ -191,6 +229,7 @@ async function replyStatus(event) {
     releaseId: TABLE.releaseId,
     state: (self.serviceWorker && self.serviceWorker.state) || state,
     lastInstallError: await readInstallError(),
+    configPrefetchError: await readMeta(CONFIG_ERROR_KEY),
   });
 }
 

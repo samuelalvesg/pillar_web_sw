@@ -6,3 +6,5 @@
 - Gravação de `app-service-worker.js` (modelo do worker com a tabela embutida, determinístico) e `app-sw-register.js` no diretório de build; `--check-only` e `--print-table` continuam sem gravar.
 - `--kill-switch`: worker que apaga os caches `<cachePrefix>-*` e se desregistra, no mesmo nome do worker.
 - Testes: texto gerado em Dart e cenários do worker em Node (mocks de `caches`/`fetch`/`self`), pulados quando o Node não existe.
+- Worker: a instalação busca `config.js` (`cache: 'reload'`) e o guarda em `<prefix>-runtime`, em melhor esforço (falha não rejeita a instalação; vai para `configPrefetchError` no status), para a reabertura offline ter a configuração do tenant.
+- Worker: `clients.claim()` passa a depender de uma marca de primeira instalação gravada no `install` (`registration.active` nulo), não mais da ausência de outro cache de release.
