@@ -24,6 +24,7 @@ class WebSwConfig {
     this.onDemand = const [],
     this.ignore = const [],
     this.neverIntercept = const [],
+    this.noHashCheck = const [],
     this.navigationFallback = true,
   });
 
@@ -32,6 +33,9 @@ class WebSwConfig {
   final List<String> onDemand;
   final List<String> ignore;
   final List<String> neverIntercept;
+
+  /// Globs of core entries checked by status only at install (no hash).
+  final List<String> noHashCheck;
   final bool navigationFallback;
 
   static const _keys = {
@@ -40,6 +44,7 @@ class WebSwConfig {
     'onDemand',
     'ignore',
     'neverIntercept',
+    'noHashCheck',
     'navigationFallback',
   };
 
@@ -65,6 +70,7 @@ class WebSwConfig {
       onDemand: _strings(doc, 'onDemand') ?? d.onDemand,
       ignore: _strings(doc, 'ignore') ?? d.ignore,
       neverIntercept: _strings(doc, 'neverIntercept') ?? d.neverIntercept,
+      noHashCheck: _strings(doc, 'noHashCheck') ?? d.noHashCheck,
       navigationFallback:
           _bool(doc, 'navigationFallback') ?? d.navigationFallback,
     );

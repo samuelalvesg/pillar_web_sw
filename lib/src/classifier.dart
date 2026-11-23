@@ -24,6 +24,26 @@ const strategyHashed = 'cache-first';
 const strategyRelease = 'release-cache-first';
 const strategyOnDemand = 'on-demand';
 
+/// Install-time integrity check of a core entry.
+const checkHash = 'hash';
+const checkStatus = 'status';
+
+// Proxies such as Cloudflare rewrite these on the edge (link injection,
+// e-mail obfuscation, minification), so no content hash can match.
+const _rewritableExtensions = {
+  'html', 'htm', 'svg', 'xml', 'txt', 'css', 'json', //
+};
+
+/// `status` for rewritable text types or entries matching [noHashCheck],
+/// `hash` for code and binaries.
+String checkFor(String url, List<Glob> noHashCheck) {
+  final name = url.split('/').last;
+  final dot = name.lastIndexOf('.');
+  final ext = dot < 0 ? '' : name.substring(dot + 1).toLowerCase();
+  if (_rewritableExtensions.contains(ext)) return checkStatus;
+  return _matchesAny(noHashCheck, url) ? checkStatus : checkHash;
+}
+
 class Classification {
   const Classification({
     required this.core,
@@ -87,9 +107,11 @@ Map<String, Object> buildTable({
   required WebSwConfig config,
   required String releaseId,
 }) {
+  final noHash = _compile(config.noHashCheck);
   Map<String, Object> coreJson(ManifestEntry e) => {
     ...e.toJson(),
     'strategy': e.urlHashed ? strategyHashed : strategyRelease,
+    'check': checkFor(e.url, noHash),
   };
   Map<String, Object> onDemandJson(ManifestEntry e) => {
     ...e.toJson(),

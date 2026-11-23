@@ -127,6 +127,12 @@ async function precacheEntry(cache, entry) {
   if (response.status !== 200) {
     throw new Error(entry.url + ': status ' + response.status);
   }
+  // Proxies rewrite HTML and text on the edge, so those entries are checked
+  // by status only (entry.check === 'status'); TLS covers their integrity.
+  if (entry.check === 'status') {
+    await cache.put(href, response);
+    return;
+  }
   const copy = response.clone();
   const hash = await shortHash(await response.arrayBuffer());
   if (hash !== entry.hash) {

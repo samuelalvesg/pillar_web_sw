@@ -40,6 +40,56 @@ navigationFallback: false
       expect(c.navigationFallback, isTrue);
     });
 
+    test('noHashCheck is accepted, other unknown keys still fail', () {
+      expect(WebSwConfig.parse('noHashCheck: ["a/**"]').noHashCheck, ['a/**']);
+      expect(
+        () => WebSwConfig.parse('noHashChek: []'),
+        throwsA(isA<ConfigException>()),
+      );
+      expect(
+        () => WebSwConfig.parse('noHashCheck: x'),
+        throwsA(isA<ConfigException>()),
+      );
+    });
+
+    test('table marks text as status-only, code as hash, config overrides', () {
+      final entries = [
+        for (final u in [
+          'index.html',
+          'a.json',
+          'a.css',
+          'main.dart.js',
+          'x.wasm',
+          'f.ttf',
+          'img/p.png',
+        ])
+          ManifestEntry(url: u, hash: '00000000', size: 1, urlHashed: false),
+      ];
+      Map<String, Object?> checks(WebSwConfig c) => {
+        for (final e
+            in buildTable(
+                  classification: classify(entries, c),
+                  config: c,
+                  releaseId: 'r',
+                )['core']
+                as List)
+          (e as Map)['url']: e['check'],
+      };
+      expect(checks(const WebSwConfig()), {
+        'index.html': 'status',
+        'a.json': 'status',
+        'a.css': 'status',
+        'main.dart.js': 'hash',
+        'x.wasm': 'hash',
+        'f.ttf': 'hash',
+        'img/p.png': 'hash',
+      });
+      expect(
+        checks(const WebSwConfig(noHashCheck: ['img/**']))['img/p.png'],
+        'status',
+      );
+    });
+
     test('rejects unknown keys, wrong types and bad prefix', () {
       expect(
         () => WebSwConfig.parse('cache: x'),

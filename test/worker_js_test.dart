@@ -50,7 +50,9 @@ Directory makeBuild(Directory parent, String name, {bool kill = false}) {
   });
   final cfg = File('${parent.path}/$name.yaml')
     ..writeAsStringSync(
-      'onDemand: ["assets/bible/**"]\nneverIntercept: ["/api/"]\n',
+      'onDemand: ["assets/bible/**"]\n'
+      'neverIntercept: ["/api/"]\n'
+      'noHashCheck: ["assets/AssetManifest.bin"]\n',
     );
   final (code, _, err) = cli([
     dir.path,
