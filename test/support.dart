@@ -38,11 +38,21 @@ Map<String, String> baseBuild() => {
   '.last_build_id': 'x',
   'assets/AssetManifest.bin': 'bin',
   'assets/bible/nvi.2a2a2a2a.json': 'big',
-  'canvaskit/canvaskit.wasm': 'wasm',
   'main.dart.wasm.br': 'br',
   'main.dart.wasm.gz': 'gz',
   'app-service-worker.js': 'old',
   'app-sw-register.js': 'old',
+};
+
+/// Extra files of a build made with --no-web-resources-cdn (local CanvasKit).
+Map<String, String> localCanvaskitFiles() => {
+  'canvaskit/canvaskit.js': 'ckjs',
+  'canvaskit/canvaskit.wasm': 'ckwasm',
+  'canvaskit/canvaskit.js.symbols': 'sym',
+  'canvaskit/skwasm.js': 'skjs',
+  'canvaskit/skwasm.wasm': 'skwasm',
+  'canvaskit/skwasm_heavy.wasm': 'heavy',
+  'canvaskit/chromium/canvaskit.wasm': 'chromium',
 };
 
 /// Writes a precache_manifest.json into [dir] listing [entries].

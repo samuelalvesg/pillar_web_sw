@@ -2,6 +2,7 @@
 
 ## Não lançado
 
+- `canvaskit/**` passa a entrar na tabela quando existe no disco (build com `--no-web-resources-cdn`), sem hash no nome (`urlHashed: false`); a classificação por `web_sw.yaml` decide núcleo, sob demanda ou ignorado. `*.symbols` e `*.map` continuam fora.
 - Gerador `dart run pillar_web_sw:generate`: varredura de `build/web`, tabela no formato do `precache_manifest.json`, conferência com o manifesto do SDK, `release_id` por conteúdo, `web_sw.yaml` e classificação núcleo / sob demanda / ignorados (`--print-table`, `--check-only`, `--release-id`).
 - Gravação de `app-service-worker.js` (modelo do worker com a tabela embutida, determinístico) e `app-sw-register.js` no diretório de build; `--check-only` e `--print-table` continuam sem gravar.
 - `--kill-switch`: worker que apaga os caches `<cachePrefix>-*` e se desregistra, no mesmo nome do worker.

@@ -23,6 +23,48 @@ void main() {
     expect(out, contains('8 no núcleo'));
   });
 
+  test('local canvaskit: only the loader variant goes to the core', () {
+    final dir = fixture({...baseBuild(), ...localCanvaskitFiles()});
+    final cfg = File('${dir.path}.yaml')
+      ..writeAsStringSync('''
+core:
+  - "**"
+onDemand:
+  - canvaskit/chromium/**
+  - canvaskit/skwasm_heavy.*
+ignore:
+  - canvaskit/skwasm.*
+''');
+    addTearDown(cfg.deleteSync);
+    final (code, out, _) = cli([
+      dir.path,
+      '--print-table',
+      '--config',
+      cfg.path,
+    ]);
+    expect(code, 0);
+    final table = jsonDecode(out) as Map<String, dynamic>;
+    List<String> urls(String k) => [
+      for (final e in table[k] as List)
+        e is Map ? e['url'] as String : e as String,
+    ].where((u) => u.startsWith('canvaskit/')).toList();
+    expect(urls('core'), [
+      'canvaskit/canvaskit.js',
+      'canvaskit/canvaskit.wasm',
+    ]);
+    expect(urls('onDemand'), [
+      'canvaskit/chromium/canvaskit.wasm',
+      'canvaskit/skwasm_heavy.wasm',
+    ]);
+    expect(urls('ignored'), ['canvaskit/skwasm.js', 'canvaskit/skwasm.wasm']);
+    final ck = (table['core'] as List).cast<Map>().firstWhere(
+      (e) => e['url'] == 'canvaskit/canvaskit.wasm',
+    );
+    expect(ck['urlHashed'], false);
+    expect(ck['strategy'], 'release-cache-first');
+    expect(ck['hash'], hasLength(8));
+  });
+
   test('--print-table prints the JSON table, --release-id overrides', () {
     final dir = fixture(baseBuild());
     final (code, out, _) = cli([

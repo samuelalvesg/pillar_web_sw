@@ -37,14 +37,37 @@ void main() {
       expect(e.size, 3);
     });
 
-    test('excludes dotfiles in nested folders and canvaskit/**', () {
+    test('excludes dotfiles in nested folders', () {
       final dir = fixture({
         'index.html': 'i',
         'assets/.hidden': 'h',
         '.dir/file.js': 'f',
-        'canvaskit/chromium/canvaskit.js': 'c',
       });
       expect(scanBuild(dir).map((e) => e.url), ['index.html']);
+    });
+
+    test('scans local canvaskit/** as not hashed, without symbols/maps', () {
+      final dir = fixture({
+        'index.html': 'i',
+        'canvaskit/canvaskit.js': 'js',
+        'canvaskit/canvaskit.wasm': 'wasm',
+        'canvaskit/canvaskit.js.symbols': 'sym',
+        'canvaskit/chromium/canvaskit.wasm': 'chromium',
+        'canvaskit/skwasm.wasm.map': 'map',
+      });
+      final entries = scanBuild(dir);
+      expect(entries.map((e) => e.url), [
+        'canvaskit/canvaskit.js',
+        'canvaskit/canvaskit.wasm',
+        'canvaskit/chromium/canvaskit.wasm',
+        'index.html',
+      ]);
+      expect(
+        entries
+            .where((e) => e.url.startsWith('canvaskit/'))
+            .map((e) => e.urlHashed),
+        everyElement(isFalse),
+      );
     });
 
     test('urlHashed follows the SDK rule', () {

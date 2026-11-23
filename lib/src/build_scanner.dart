@@ -4,7 +4,9 @@
 ///   Flutter's precache_manifest.json, reading the disk (not the flag).
 /// Dependências: package:crypto, package:path.
 /// Premissas: exclusions mirror the SDK (content_hash.dart) plus *.br, *.gz
-///   and the two files this package generates.
+///   and the two files this package generates. canvaskit/** is scanned when
+///   present (build with --no-web-resources-cdn); those files are not
+///   content-hashed, so they get urlHashed false and the hash comes from disk.
 /// Edge Cases: symlinks are not followed; the walk order is irrelevant
 ///   because the result is sorted by url.
 library;
@@ -36,7 +38,6 @@ bool isUrlHashed(String url) => _hashedName.hasMatch(url.split('/').last);
 bool isExcluded(String url) {
   final segments = url.split('/');
   if (segments.any((s) => s.startsWith('.'))) return true;
-  if (segments.first == 'canvaskit') return true;
   if (_excludedNames.contains(url)) return true;
   return _excludedSuffixes.any(url.endsWith);
 }
