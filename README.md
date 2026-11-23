@@ -10,7 +10,7 @@ Estado: gerador (varredura, conferência, `release_id`, classificação), modelo
 dart run pillar_web_sw:generate <build/web> [--config web_sw.yaml] [--release-id <id>] [--check-only] [--print-table] [--kill-switch]
 ```
 
-- Varre o disco e monta a tabela no formato do `precache_manifest.json` (`url`, `hash` de 8 hex do SHA-256, `size`, `urlHashed`). Ficam de fora `*.map`, `*.symbols`, `*.info.json`, `*.br`, `*.gz`, arquivos de ponto, `precache_manifest.json`, `flutter_service_worker.js`, `canvaskit/**` e os dois arquivos gerados.
+- Varre o disco e monta a tabela no formato do `precache_manifest.json` (`url`, `hash` de 8 hex do SHA-256, `size`, `urlHashed`). Ficam de fora `*.map`, `*.symbols`, `*.info.json`, `*.br`, `*.gz`, arquivos de ponto, `precache_manifest.json`, `flutter_service_worker.js` e os dois arquivos gerados. `canvaskit/**` entra na tabela quando existe no disco (build com `--no-web-resources-cdn`); esses arquivos não têm hash no nome (`urlHashed: false`, hash do disco, estratégia `release-cache-first`) e não devem ser servidos como `immutable`.
 - Se `precache_manifest.json` existe, confere as entradas `urlHashed`; divergência nomeia o arquivo e sai com 1. Sem o manifesto não há erro.
 - `release_id` = 8 hex do SHA-256 das linhas `url:hash` ordenadas do núcleo mais a versão do modelo do worker (hash do texto do modelo, `workerModelId`); `--release-id` substitui.
 - `--check-only` só confere o manifesto; `--print-table` imprime a tabela (núcleo, sob demanda, ignorados) em JSON estável.
@@ -29,6 +29,14 @@ onDemand: ["assets/bible/**"]  # guardados no primeiro uso
 ignore: ["**/*.txt"]        # nunca em cache
 neverIntercept: [/api/, /auth/]  # prefixos que o worker não toca
 navigationFallback: true    # index.html da release para navegação offline
+```
+
+CanvasKit local: o padrão `**` põe todas as variantes de `canvaskit/**` (cerca de 20 MB com `canvaskit`, `skwasm`, `skwasm_heavy`, `wimp*`, `chromium/`) no núcleo. Use as listas para deixar no núcleo só o que o loader pede e o resto fora:
+
+```yaml
+core: ["**"]
+onDemand: ["canvaskit/chromium/**", "canvaskit/skwasm_heavy.*"]  # guardado no primeiro uso
+ignore: ["canvaskit/wimp*", "canvaskit/webparagraph/**"]        # nunca em cache
 ```
 
 Precedência: `ignore` > `onDemand` > `core`; arquivo que não casa com nenhuma lista é ignorado.
