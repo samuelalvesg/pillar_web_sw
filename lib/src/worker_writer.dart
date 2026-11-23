@@ -12,9 +12,18 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+
 import 'templates/app_service_worker_template.dart';
 import 'templates/kill_switch_template.dart';
 import 'templates/register_template.dart';
+
+/// Version of the worker template: 8 hex of the SHA-256 of its text, so any
+/// edit to the template changes it without a constant to remember.
+final String workerModelId = sha256
+    .convert(utf8.encode(appServiceWorkerTemplate))
+    .toString()
+    .substring(0, 8);
 
 const workerFileName = 'app-service-worker.js';
 const registerFileName = 'app-sw-register.js';

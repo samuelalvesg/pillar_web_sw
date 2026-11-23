@@ -22,6 +22,9 @@ const TABLE = __APP_SW_TABLE__;
 
 const PREFIX = TABLE.cachePrefix;
 const CORE_CACHE = PREFIX + '-core-' + TABLE.releaseId;
+// Never the name of a live release: the active worker may be serving
+// CORE_CACHE (same core, other worker) while this one installs.
+const INSTALLING_CACHE = CORE_CACHE + '-installing';
 const ONDEMAND_CACHE = PREFIX + '-ondemand';
 const RUNTIME_CACHE = PREFIX + '-runtime';
 const META_CACHE = PREFIX + '-meta';
@@ -63,6 +66,7 @@ async function install() {
   await markFirstInstall(!self.registration.active);
   try {
     await precacheCore();
+    await promoteInstalled();
     await prefetchConfig();
     state = 'installed';
   } catch (error) {
@@ -70,15 +74,15 @@ async function install() {
     const message = String((error && error.message) || error);
     console.error('[app-sw] install failed: ' + message);
     await recordInstallError(message);
-    await caches.delete(CORE_CACHE);
+    await caches.delete(INSTALLING_CACHE);
     // Rejecting keeps the previous worker in charge.
     throw error;
   }
 }
 
 async function precacheCore() {
-  await caches.delete(CORE_CACHE);
-  const cache = await caches.open(CORE_CACHE);
+  await caches.delete(INSTALLING_CACHE);
+  const cache = await caches.open(INSTALLING_CACHE);
   // config.js is per tenant and changes without a new build: it is never
   // part of the release, so it cannot be hash-checked either.
   const queue = TABLE.core.filter((e) => e.url !== CONFIG_REL);
@@ -97,6 +101,24 @@ async function precacheCore() {
     },
   );
   await Promise.all(lanes);
+}
+
+// Copies the verified entries to the final name. Existing entries are only
+// overwritten (same release id means same content), never deleted, so a
+// failure cannot take away a cache another worker is serving.
+async function promoteInstalled() {
+  const existed = await caches.has(CORE_CACHE);
+  try {
+    const temp = await caches.open(INSTALLING_CACHE);
+    const target = await caches.open(CORE_CACHE);
+    for (const request of await temp.keys()) {
+      await target.put(request.url, await temp.match(request.url));
+    }
+  } catch (error) {
+    if (!existed) await caches.delete(CORE_CACHE);
+    throw error;
+  }
+  await caches.delete(INSTALLING_CACHE);
 }
 
 async function precacheEntry(cache, entry) {

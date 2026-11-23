@@ -101,7 +101,9 @@ int runGenerate(
   }
 
   final classification = classify(entries, config);
-  final releaseId = releaseOverride ?? computeReleaseId(classification.core);
+  final releaseId =
+      releaseOverride ??
+      computeReleaseId(classification.core, model: workerModelId);
   if (parsed['check-only'] as bool) {
     out.writeln('Manifesto conferido: ${entries.length} arquivos.');
     return exitOk;

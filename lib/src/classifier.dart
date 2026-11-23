@@ -71,10 +71,13 @@ Classification classify(List<ManifestEntry> entries, WebSwConfig config) {
   );
 }
 
-/// First 8 hex of the SHA-256 over the sorted `url:hash` lines of the core.
-String computeReleaseId(List<ManifestEntry> core) {
+/// First 8 hex of the SHA-256 over the sorted `url:hash` lines of the core,
+/// plus [model] (the worker template version) when given, so two different
+/// workers never share a release cache name.
+String computeReleaseId(List<ManifestEntry> core, {String model = ''}) {
   final sorted = [...core]..sort((a, b) => a.url.compareTo(b.url));
-  final text = sorted.map((e) => '${e.url}:${e.hash}').join('\n');
+  final lines = sorted.map((e) => '${e.url}:${e.hash}').join('\n');
+  final text = model.isEmpty ? lines : '$lines\nmodel:$model';
   return sha256.convert(utf8.encode(text)).toString().substring(0, 8);
 }
 

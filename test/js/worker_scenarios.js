@@ -211,6 +211,49 @@ const scenarios = {
     assert.deepStrictEqual((await od.keys()).map((k) => k.url), [keep]);
     assert.strictEqual(w.calls.claim, 0, 'previous release exists');
   },
+  async 'a new worker with the same core installs without touching the active cache'() {
+    const caches = new MockCaches();
+    const active = await installed({ caches });
+    const before = (await (await caches.open(CORE())).keys()).length;
+    caches.deleted.length = 0;
+    const other = boot(workerCode() + '\n// other worker model\n', { buildDir, caches, active: {} });
+    await other.install();
+    assert.ok(!caches.deleted.includes(CORE()), 'active cache was deleted');
+    assert.strictEqual((await (await caches.open(CORE())).keys()).length, before);
+    assert.ok(!(await caches.has(CORE() + '-installing')));
+    active.server.offline = true;
+    assert.ok((await active.doFetch('/', { mode: 'navigate' })).response.ok);
+  },
+  async 'an install that fails midway leaves the active cache intact and usable offline'() {
+    const caches = new MockCaches();
+    const active = await installed({ caches });
+    const before = (await (await caches.open(CORE())).keys()).length;
+    caches.deleted.length = 0;
+    const other = boot(workerCode() + '\n// other worker model\n', { buildDir, caches, active: {} });
+    other.server.overrides.set('/main.dart.js', async () => respond('x', { status: 503 }));
+    await rejects(other.install(), /status 503/);
+    assert.ok(!caches.deleted.includes(CORE()), 'active cache was deleted');
+    assert.strictEqual((await (await caches.open(CORE())).keys()).length, before);
+    assert.ok(!(await caches.has(CORE() + '-installing')), 'temp cache left');
+    const reopened = boot(workerCode(), { buildDir, caches, active: {} });
+    reopened.server.offline = true;
+    const html = fs.readFileSync(path.join(buildDir, 'index.html'), 'utf8');
+    assert.strictEqual((await reopened.doFetch('/eventos/1', { mode: 'navigate' })).text, html);
+    assert.strictEqual((await reopened.doFetch('/main.dart.js')).response.ok, true);
+  },
+  async 'a successful install promotes the temp cache and activate cleans the old ones'() {
+    const caches = new MockCaches();
+    await installed({ caches, buildDir });
+    const next = boot(nextRelease('newrel04'), { buildDir, caches, active: {} });
+    await next.install();
+    assert.ok(await caches.has('app-core-newrel04'));
+    assert.ok(!(await caches.has('app-core-newrel04-installing')));
+    assert.ok(await caches.has(CORE()), 'old release stays until activate');
+    await next.activate();
+    assert.ok(!(await caches.has(CORE())));
+    assert.ok(await caches.has('app-core-newrel04'));
+    assert.ok(await hasKey(next, 'app-core-newrel04', '/index.html'));
+  },
   async 'claim happens only on the first install, and the mark is cleared'() {
     const caches = new MockCaches();
     const first = await installed({ caches });

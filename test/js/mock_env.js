@@ -45,13 +45,13 @@ class MockCache {
 }
 
 class MockCaches {
-  constructor() { this.stores = new Map(); }
+  constructor() { this.stores = new Map(); this.deleted = []; }
   async open(name) {
     if (!this.stores.has(name)) this.stores.set(name, new MockCache());
     return this.stores.get(name);
   }
   async has(name) { return this.stores.has(name); }
-  async delete(name) { return this.stores.delete(name); }
+  async delete(name) { this.deleted.push(name); return this.stores.delete(name); }
   async keys() { return [...this.stores.keys()]; }
 }
 

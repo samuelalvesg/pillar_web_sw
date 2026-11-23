@@ -70,6 +70,35 @@ void main() {
     expect(read(other, 'app-service-worker.js'), first[0]);
   });
 
+  test('the release id covers the worker model, not just the core', () {
+    final core = scanBuild(fixture(baseBuild()));
+    final ids = {
+      computeReleaseId(core),
+      computeReleaseId(core, model: 'aaaaaaaa'),
+      computeReleaseId(core, model: 'bbbbbbbb'),
+    };
+    expect(ids, hasLength(3));
+    expect(
+      computeReleaseId(core, model: 'aaaaaaaa'),
+      computeReleaseId(core, model: 'aaaaaaaa'),
+    );
+    expect(workerModelId, matches(RegExp(r'^[0-9a-f]{8}$')));
+    final dir = fixture(baseBuild());
+    cli([dir.path]);
+    final table = embeddedTable(read(dir, 'app-service-worker.js'));
+    final scanned = classify(scanBuild(dir), const WebSwConfig()).core;
+    expect(table['releaseId'], computeReleaseId(scanned, model: workerModelId));
+  });
+
+  test('--release-id still wins over the computed id', () {
+    final dir = fixture(baseBuild());
+    cli([dir.path, '--release-id', 'manual1']);
+    expect(
+      embeddedTable(read(dir, 'app-service-worker.js'))['releaseId'],
+      'manual1',
+    );
+  });
+
   test('different content gives a different worker', () {
     final a = fixture(baseBuild());
     final b = fixture({...baseBuild(), 'main.dart.js': 'changed'});

@@ -14,4 +14,9 @@ export 'src/manifest_check.dart' show checkAgainstManifest;
 export 'src/manifest_entry.dart' show ManifestEntry;
 export 'src/web_sw_config.dart' show ConfigException, WebSwConfig;
 export 'src/worker_writer.dart'
-    show renderKillSwitch, renderWorker, writeKillSwitch, writeWorkerFiles;
+    show
+        renderKillSwitch,
+        renderWorker,
+        workerModelId,
+        writeKillSwitch,
+        writeWorkerFiles;
