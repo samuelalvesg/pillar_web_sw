@@ -90,6 +90,30 @@ void main() {
     expect(table['releaseId'], computeReleaseId(scanned, model: workerModelId));
   });
 
+  test(
+    'the table carries check per entry, noHashCheck from the yaml applies',
+    () {
+      final dir = fixture(baseBuild());
+      final cfg = File('${dir.path}/../nh_${dir.hashCode}.yaml')
+        ..writeAsStringSync('noHashCheck: ["assets/AssetManifest.bin"]');
+      addTearDown(cfg.deleteSync);
+      cli([dir.path, '--config', cfg.path]);
+      final core =
+          embeddedTable(read(dir, 'app-service-worker.js'))['core'] as List;
+      final check = {for (final e in core) (e as Map)['url']: e['check']};
+      expect(check['index.html'], 'status');
+      expect(check['main.dart.js'], 'hash');
+      expect(check['assets/AssetManifest.bin'], 'status');
+      final id = embeddedTable(read(dir, 'app-service-worker.js'))['releaseId'];
+      final plain = fixture(baseBuild());
+      cli([plain.path]);
+      expect(
+        embeddedTable(read(plain, 'app-service-worker.js'))['releaseId'],
+        id,
+      );
+    },
+  );
+
   test('--release-id still wins over the computed id', () {
     final dir = fixture(baseBuild());
     cli([dir.path, '--release-id', 'manual1']);

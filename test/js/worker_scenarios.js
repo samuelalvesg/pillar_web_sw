@@ -48,6 +48,40 @@ const scenarios = {
     assert.ok(!(await caches.has('app-core-newrel01')));
     assert.ok(await hasKey(old, CORE(), '/index.html'));
   },
+  async 'HTML that a proxy rewrote installs and is served from the cache'() {
+    const w = fresh();
+    const rewritten = '<html><a href="/cdn-cgi/content?id=1"></a></html>';
+    w.server.overrides.set('/index.html', async () => respond(rewritten));
+    await w.install();
+    await w.activate();
+    w.server.offline = true;
+    assert.strictEqual((await w.doFetch('/eventos/1', { mode: 'navigate' })).text, rewritten);
+  },
+  async 'the table marks text as status-only and code and binaries as hash'() {
+    const check = Object.fromEntries(table().core.map((e) => [e.url, e.check]));
+    assert.strictEqual(check['index.html'], 'status');
+    assert.strictEqual(check['version.json'], 'status');
+    assert.strictEqual(check['main.dart.js'], 'hash');
+    assert.strictEqual(check['icons/Icon-192.png'], 'hash');
+  },
+  async 'code and unlisted binaries are still hash-checked next to rewritten HTML'() {
+    for (const url of ['/main.dart.js', '/icons/Icon-192.png']) {
+      const w = fresh();
+      w.server.overrides.set('/index.html', async () => respond('<html>cf</html>'));
+      w.server.overrides.set(url, async () => respond('tampered'));
+      await rejects(w.install(), /hash .* differs/);
+    }
+  },
+  async 'noHashCheck from the config relaxes the check for that entry only'() {
+    assert.strictEqual(
+      table().core.find((e) => e.url === 'assets/AssetManifest.bin').check, 'status');
+    const w = fresh();
+    w.server.overrides.set('/assets/AssetManifest.bin', async () => respond('proxied'));
+    await w.install();
+    const bad = fresh();
+    bad.server.overrides.set('/flutter.js', async () => respond('tampered'));
+    await rejects(bad.install(), /hash/);
+  },
   async 'install rejects when a hash does not match'() {
     const w = fresh();
     w.server.overrides.set('/flutter.js', async () => respond('tampered'));
