@@ -1,69 +1,121 @@
 # pillar_web_sw
 
-Pacote Dart que gera o service worker por release dos builds web Flutter. Desenho: ADR 0027 no repositório de documentação do Symmetris.
+A release-scoped service worker for Flutter web builds. Run one command after `flutter build web` and the app can open offline, with its own cache for each release and a kill switch to pull a bad release back.
 
-Estado: gerador (varredura, conferência, `release_id`, classificação), modelo do worker em JS, script de registro e interruptor de emergência.
+The generator builds the service worker from the files of each build. Every release gets its own cache, and a failed install leaves the version your users already have untouched.
 
-## Uso
+> Status: alpha. The generator, the worker template, the registration script and the kill switch work and are tested. The API may still change before 0.1.0.
+
+## Why
+
+- Each release has its own cache, named `<prefix>-core-<release_id>`. The release id is a hash of every core file, so a new build never shares a cache with the old one.
+- The worker downloads and checks everything into a temporary cache and copies it to the final name only when all of it is good. If anything fails, it deletes the temporary cache and the active worker keeps serving its own.
+- Navigation tries the network for three seconds, then falls back to the release's `index.html`, so the app works offline by default.
+- `--kill-switch` writes a worker that deletes its caches and unregisters itself.
+- It is a Dart command and needs no Node or build tool. Node is only used by the optional JavaScript tests.
+
+## Quick start
+
+Add it to `pubspec.yaml`:
+
+```yaml
+dev_dependencies:
+  pillar_web_sw:
+    git:
+      url: https://github.com/samuelalvesg/pillar_web_sw.git
+      ref: v0.1.0-alpha.3
+```
+
+Build, then generate:
 
 ```bash
-dart run pillar_web_sw:generate <build/web> [--config web_sw.yaml] [--release-id <id>] [--check-only] [--print-table] [--kill-switch]
+flutter build web
+dart run pillar_web_sw:generate build/web
 ```
 
-- Varre o disco e monta a tabela no formato do `precache_manifest.json` (`url`, `hash` de 8 hex do SHA-256, `size`, `urlHashed`). Ficam de fora `*.map`, `*.symbols`, `*.info.json`, `*.br`, `*.gz`, arquivos de ponto, `precache_manifest.json`, `flutter_service_worker.js` e os dois arquivos gerados. `canvaskit/**` entra na tabela quando existe no disco (build com `--no-web-resources-cdn`); esses arquivos não têm hash no nome (`urlHashed: false`, hash do disco, estratégia `release-cache-first`) e não devem ser servidos como `immutable`.
-- Se `precache_manifest.json` existe, confere as entradas `urlHashed`; divergência nomeia o arquivo e sai com 1. Sem o manifesto não há erro.
-- `release_id` = 8 hex do SHA-256 das linhas `url:hash` ordenadas do núcleo mais a versão do modelo do worker (hash do texto do modelo, `workerModelId`); `--release-id` substitui.
-- `--check-only` só confere o manifesto; `--print-table` imprime a tabela (núcleo, sob demanda, ignorados) em JSON estável.
-- Sem `--check-only`/`--print-table`, grava em `<build/web>` os arquivos `app-service-worker.js` (tabela e `release_id` embutidos; mesma entrada, mesmos bytes) e `app-sw-register.js`. Rode depois do último passo que mexe no build.
-- `--kill-switch` grava, no mesmo nome `app-service-worker.js`, um worker que apaga os caches `<cachePrefix>-*` e se desregistra (não varre o build; não combina com `--check-only`/`--print-table`). Publique-o para recolher uma release ruim; depois rode o gerador normal.
-- Códigos de saída: 0 ok, 1 manifesto diverge do disco, 2 erro de uso (argumentos, diretório ou configuração inválidos).
-
-## `web_sw.yaml`
-
-Todas as chaves são opcionais; sem o arquivo, tudo vai para o núcleo. Procura `./web_sw.yaml` quando `--config` não é informado.
-
-```yaml
-cachePrefix: bible          # prefixo dos caches
-core: ["**"]                # globs do núcleo (pré-cache da release)
-onDemand: ["assets/bible/**"]  # guardados no primeiro uso
-ignore: ["**/*.txt"]        # nunca em cache
-neverIntercept: [/api/, /auth/]  # prefixos que o worker não toca
-noHashCheck: ["assets/img/**"]    # só status 200 no install, sem hash
-navigationFallback: true    # index.html da release para navegação offline
-```
-
-CanvasKit local: o padrão `**` põe todas as variantes de `canvaskit/**` (cerca de 20 MB com `canvaskit`, `skwasm`, `skwasm_heavy`, `wimp*`, `chromium/`) no núcleo. Use as listas para deixar no núcleo só o que o loader pede e o resto fora:
-
-```yaml
-core: ["**"]
-onDemand: ["canvaskit/chromium/**", "canvaskit/skwasm_heavy.*"]  # guardado no primeiro uso
-ignore: ["canvaskit/wimp*", "canvaskit/webparagraph/**"]        # nunca em cache
-```
-
-Precedência: `ignore` > `onDemand` > `core`; arquivo que não casa com nenhuma lista é ignorado.
-
-## Worker e registro
-
-O modelo do worker é uma constante Dart (`lib/src/templates/`), não um arquivo de asset: assim funciona igual em `dart run`, `dart pub global` e executável compilado. Node não é dependência (só serve para os testes JS, opcionais).
-
-Estratégias (ADR 0027, item 6): navegação rede primeiro com 3 s de limite e, sem rede, o `index.html` da release; núcleo sem hash e `urlHashed` do cache da release primeiro; sob demanda guardado no primeiro uso em `<prefix>-ondemand`; `config.js` rede primeiro com cache de reserva em `<prefix>-runtime` (fica fora do núcleo e da conferência de hash, pois muda por tenant; a instalação o busca com `cache: 'reload'` e o guarda, porque a primeira visita o pede antes de o worker assumir. É melhor esforço: falha, 404, resposta não-ok ou não same-origin não rejeita a instalação e aparece em `configPrefetchError` no status); fontes e CanvasKit do CDN (`fonts.gstatic.com`, `www.gstatic.com/flutter-canvaskit/`) com `stale-while-revalidate` em `<prefix>-runtime` (só resposta CORS, até 60 entradas). Não intercepta: não-GET, `Range`, outras origens, `neverIntercept` e arquivo ausente em `assets/`, `canvaskit/`, `icons/` ou `main.dart*` (vai ao servidor e recebe o 404 real). Instalação com `cache: 'reload'`, status 200 e hash conferido (só para código e binários, ver abaixo); qualquer falha rejeita a instalação e o worker anterior segue. Sem `skipWaiting` automático. Proteção do cache ativo: o nome do cache da release é `<prefix>-core-<release_id>` e o `release_id` inclui a versão do modelo, então um worker novo (por exemplo depois de atualizar o `pillar_web_sw`) nunca divide o nome com o que está ativo, mesmo com o mesmo núcleo. Além disso, a instalação nunca toca o cache da release: baixa e confere tudo em `<prefix>-core-<id>-installing` e só no sucesso copia para o nome final (sobrescrevendo, nunca apagando). Se falhar, apaga apenas o temporário, e o worker ativo continua abrindo offline com o cache dele. Vale também com `--release-id` manual, em que o nome pode coincidir. `clients.claim()` só na primeira instalação: o `install` grava em `<prefix>-meta` se não havia worker ativo (`registration.active` nulo) e o `activate` usa e limpa a marca; atualização, ou reinstalação com worker ativo (por exemplo depois do interruptor), não assume abas abertas.
-
-Mensagens (todas com prefixo `app-sw-`): `{type: 'app-sw-skip-waiting'}` assume o controle; `{type: 'app-sw-status'}` responde `{releaseId, state, lastInstallError, configPrefetchError}` (pela porta enviada em `ports[0]` ou pelo `event.source`).
-
-Registro no `index.html`, depois do `flutter_bootstrap.js` ou antes dele, tanto faz:
+Register the worker in `web/index.html`:
 
 ```html
 <script src="app-sw-register.js" defer></script>
 ```
 
-Registra no evento `load`, escopo da pasta do script, `updateViaCache: 'none'`; nunca lança. A única superfície é o evento `app-sw-update-available` na `window` (`detail.registration`), disparado quando há release nova esperando atrás de uma aberta. Texto e lugar do aviso são do app; para aplicar: `registration.waiting.postMessage({type: 'app-sw-skip-waiting'})` e recarregar em `controllerchange`.
+The generator writes two files into `build/web`: `app-service-worker.js` (the file table and the release id are inside it) and `app-sw-register.js`. Run it after the last step that touches the build.
 
-### Conferência de hash por tipo (`check`)
+## Configuration
 
-Cada entrada do núcleo na tabela tem `check`: `hash` (SHA-256 de 8 hex conferido no `install`) ou `status` (só status 200). Pela extensão, `.html`, `.htm`, `.svg`, `.xml`, `.txt`, `.css` e `.json` são `status`; o resto (`.js`, `.mjs`, `.wasm`, fontes, imagens, binários) é `hash`. A chave opcional `noHashCheck: [globs]` do `web_sw.yaml` força `status` em outras entradas (por exemplo imagens que o proxy recomprime).
+Everything is optional. Without a `web_sw.yaml` every file goes into the core cache.
 
-Motivo: proxies como o Cloudflare reescrevem HTML na borda (injeção de link `/cdn-cgi/content?id=...` com id que muda a cada requisição, ofuscação de e-mail, minificação), então nenhum hash de conteúdo bate e a instalação falharia sempre. A integridade desses arquivos fica por conta do TLS e do status. Consequência aceita: o `index.html` guardado no cache é o que o proxy entregou, com a injeção, o mesmo que o usuário recebe online. O `release_id` não muda: continua do hash de disco de todo o núcleo. Código e binários continuam rejeitando a instalação se o hash divergir.
+```yaml
+cachePrefix: myapp                 # prefix for the caches
+core: ["**"]                       # pre-cached with the release
+onDemand: ["assets/books/**"]      # cached the first time they are used
+ignore: ["**/*.txt"]               # never cached
+neverIntercept: [/api/, /auth/]    # prefixes the worker does not touch
+noHashCheck: ["assets/img/**"]     # check the status only, not the hash
+navigationFallback: true           # offline navigation gets the release's index.html
+```
 
-## Testes
+`ignore` beats `onDemand`, which beats `core`. A file that matches none of them is ignored.
 
-`dart test` roda tudo. Os testes do comportamento do worker (`test/worker_js_test.dart`) usam o Node do PATH com mocks de `caches`/`fetch`/`self` (`test/js/`); sem Node eles são pulados com a mensagem "JS NÃO EXECUTADO" e ficam só os testes Dart sobre o texto gerado.
+### Local CanvasKit
+
+A build with local CanvasKit (`--no-web-resources-cdn`) puts about 20 MB of variants under `canvaskit/`. Keep in the core only what the loader asks for:
+
+```yaml
+core: ["**"]
+onDemand: ["canvaskit/chromium/**", "canvaskit/skwasm_heavy.*"]
+ignore: ["canvaskit/wimp*", "canvaskit/webparagraph/**"]
+```
+
+## How it behaves
+
+| Request | Strategy |
+|---|---|
+| Navigation | Network first with a 3 s limit, then the release's `index.html` |
+| Core files | Release cache first |
+| On-demand files | Cached on first use, in `<prefix>-ondemand` |
+| `config.js` | Network first, cache as a fallback |
+| Fonts and CanvasKit from the CDN | Stale-while-revalidate, up to 60 entries |
+| Non-GET, `Range`, other origins, `neverIntercept` | Not touched |
+
+Install checks every core file for status 200. Code and binaries (`.js`, `.mjs`, `.wasm`, fonts, images) are also checked against their hash. Text files (`.html`, `.css`, `.json`, `.svg`, `.xml`, `.txt`) only need status 200, because proxies such as Cloudflare rewrite HTML at the edge and no content hash survives that. Force the status-only check on other files with `noHashCheck`.
+
+The worker does not call `skipWaiting` on its own. When a new release is waiting, `app-sw-register.js` fires an `app-sw-update-available` event on `window`. The text and place of the "new version" notice are yours:
+
+```js
+window.addEventListener('app-sw-update-available', (e) => {
+  // show your own prompt, then:
+  e.detail.registration.waiting.postMessage({ type: 'app-sw-skip-waiting' });
+});
+navigator.serviceWorker.addEventListener('controllerchange', () => location.reload());
+```
+
+Ask the worker for its state with `{type: 'app-sw-status'}`; it answers `{releaseId, state, lastInstallError, configPrefetchError}`.
+
+## Command reference
+
+```bash
+dart run pillar_web_sw:generate <build/web> [--config web_sw.yaml] [--release-id <id>] [--check-only] [--print-table] [--kill-switch]
+```
+
+| Flag | What it does |
+|---|---|
+| `--config` | Path to `web_sw.yaml`. Defaults to `./web_sw.yaml` when it exists. |
+| `--release-id` | Use this id instead of the computed one. |
+| `--check-only` | Only compare `precache_manifest.json` with the disk. |
+| `--print-table` | Print the file table (core, on-demand, ignored) as stable JSON. |
+| `--kill-switch` | Write a worker that deletes the caches and unregisters. Publish it to pull back a bad release, then run the normal generator. |
+
+Exit codes: `0` ok, `1` the manifest does not match the disk, `2` bad usage (arguments, directory or configuration).
+
+## Tests
+
+```bash
+dart test
+```
+
+The worker tests run in Node against mocks of `caches`, `fetch` and `self`. Without Node on the PATH they are skipped with a "JS NOT EXECUTED" message and only the Dart tests run.
+
+## License
+
+MIT
