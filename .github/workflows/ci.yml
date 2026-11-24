@@ -1,9 +1,9 @@
 name: CI
 
+# Drafts do not run it: marking the pull request ready for review does.
 on:
-  push:
-    branches: [main]
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch:
 
 concurrency:
@@ -15,6 +15,7 @@ permissions:
 
 jobs:
   test:
+    if: github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft
     name: Format, analyze and test
     runs-on: ubuntu-latest
     timeout-minutes: 15
